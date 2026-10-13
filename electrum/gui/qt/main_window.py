@@ -89,7 +89,6 @@ from .util import (read_QIcon, ColorScheme, text_dialog, icon_path, WaitingDialo
                    event_listener, scan_qr_from_screenshot)
 from .wizard.wallet import WIF_HELP_TEXT
 from .history_list import HistoryList, HistoryModel
-from .update_checker import UpdateCheck, UpdateCheckThread
 from .channels_list import ChannelsList
 from .confirm_tx_dialog import ConfirmTxDialog
 from .rbf_dialog import BumpFeeDialog, DSCancelDialog
@@ -274,26 +273,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         self.load_wallet(wallet)
         gui_object.timer.timeout.connect(self.timer_actions)
         self.contacts.fetch_openalias(self.config)
-
-        # If the option hasn't been set yet
-        if not config.cv.AUTOMATIC_CENTRALIZED_UPDATE_CHECKS.is_set():
-            choice = self.question(title="Electrum - " + _("Enable update check"),
-                                   msg=_("For security reasons we advise that you always use the latest version of Electrum.") + " " +
-                                       _("Would you like to be notified when there is a newer version of Electrum available?"))
-            config.AUTOMATIC_CENTRALIZED_UPDATE_CHECKS = bool(choice)
-
-        self._update_check_thread = None
-        if config.AUTOMATIC_CENTRALIZED_UPDATE_CHECKS:
-            # The references to both the thread and the window need to be stored somewhere
-            # to prevent GC from getting in our way.
-            def on_version_received(v):
-                if UpdateCheck.is_newer(v):
-                    self.update_check_button.setText(_("Update to Electrum {} is available").format(v))
-                    self.update_check_button.clicked.connect(lambda: self.show_update_check(v))
-                    self.update_check_button.show()
-            self._update_check_thread = UpdateCheckThread()
-            self._update_check_thread.checked.connect(on_version_received)
-            self._update_check_thread.start()
 
     def run_coroutine_dialog(self, coro, text):
         """ run coroutine in a waiting dialog, with a Cancel button that cancels the coroutine"""
@@ -771,7 +750,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             about_action.triggered.connect(self.show_about)
             about_action.setMenuRole(QAction.MenuRole.AboutRole)  # make sure OS recognizes it as "About"
             help_menu.addAction(about_action)
-        help_menu.addAction(_("&Check for updates"), self.show_update_check)
         help_menu.addAction(_("&Official website"), lambda: webopen("https://electrum.org"))
         help_menu.addSeparator()
         help_menu.addAction(_("&Documentation"), lambda: webopen("http://docs.electrum.org/")).setShortcut(QKeySequence.StandardKey.HelpContents)
@@ -813,9 +791,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             with open(filename, 'wb') as f:
                 f.write(bytes.fromhex(out))
         webopen('file:///' + filename)
-
-    def show_update_check(self, version=None):
-        self.gui_object._update_check = UpdateCheck(latest_version=version)
 
     def show_report_bug(self):
         msg = ' '.join([
@@ -1732,13 +1707,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         self.search_box.hide()
         sb.addPermanentWidget(self.search_box)
 
-        self.update_check_button = QPushButton("")
-        self.update_check_button.setFlat(True)
-        self.update_check_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.update_check_button.setIcon(read_QIcon("update.png"))
-        self.update_check_button.hide()
-        sb.addPermanentWidget(self.update_check_button)
-
         self.tasks_label = QLabel('')
         sb.addPermanentWidget(self.tasks_label)
 
@@ -2621,8 +2589,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             self.qr_window.close()
         self.close_wallet()
 
-        if self._update_check_thread:
-            self._update_check_thread.stop()
         if self.tray:
             self.tray = None
         self.gui_object.timer.timeout.disconnect(self.timer_actions)
